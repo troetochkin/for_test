@@ -1,9 +1,11 @@
+const {openCardFixture}=require('./browser-fixture.cjs');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const assert=require('node:assert/strict');const fs=require('node:fs/promises');
 (async()=>{
- const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox']});
+ const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}),args:['--no-sandbox','--enable-unsafe-swiftshader']});
  const page=await browser.newPage({viewport:{width:1512,height:982}});const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
  await page.goto(process.env.FORMA_TEST_URL || 'http://localhost:3000',{waitUntil:'networkidle'});
+ await openCardFixture(page); await page.locator('#play').click();
  await page.screenshot({path:'/tmp/forma-v2-initial.png'});
  await page.locator('body').click({position:{x:10,y:10}});
  await page.keyboard.press('Space'); assert.equal(await page.locator('#play').getAttribute('aria-label'),'Воспроизвести');

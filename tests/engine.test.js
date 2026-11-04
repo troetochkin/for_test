@@ -21,8 +21,8 @@ test('the final frame and shortest clips remain defined', () => {
   assert.ok(items[1].overlap < items[0].duration);
   assert.equal(activeScenes([a, b], totalDuration([a, b])).at(-1).clip.id, b.id);
 });
-test('all presets animate multiple independent layers in 3D at any seek position', () => {
-  for (const preset of PRESETS) {
+test('card presets animate multiple independent layers in 3D at any seek position', () => {
+  for (const preset of PRESETS.filter(p => !p.renderer)) {
     const clip = newClip(preset.id); clip.layers = Array.from({ length: 8 }, (_, i) => newLayer(i));
     for (const ratio of [[1920, 1080], [1080, 1920], [7680, 100]]) {
       const geometry = sceneGeometry(...ratio, clip.presetId);

@@ -3,6 +3,13 @@ export const clamp = (n, min = 0, max = 1) => Math.min(max, Math.max(min, n));
 export const uid = () => globalThis.crypto?.randomUUID?.() || `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 export const PALETTE = ['#d8ed7c', '#cab8ed', '#efb5a2', '#bddbd0', '#e9d9be', '#9bbde0', '#edc5d4', '#c8d2dd'];
 export const PRESETS = [
+  { id: 'type-rings', name: 'Type rings', category: 'type', renderer: 'webgl', caption: 'Типографические ленты · сфера', source: 'По приложенному изображению', color: '#eeeeeb', bg: '#bfc0c2', duration: 10, depth: 150, spread: 100, tiltX: -17, tiltY: -16, stagger: 0 },
+  { id: 'liquid-sphere', name: 'Liquid type', category: 'type', renderer: 'webgl', caption: 'Красный хром · текучая форма', source: 'По приложенному изображению', color: '#ef1d25', bg: '#f6f4f0', duration: 9, depth: 120, spread: 100, tiltX: 8, tiltY: -8, stagger: 0 },
+  { id: 'type-tunnel', name: 'Type tunnel', category: 'type', renderer: 'webgl', caption: 'Воронка · изогнутая типографика', source: 'По приложенному изображению', color: '#161619', bg: '#080809', duration: 10, depth: 100, spread: 100, tiltX: 0, tiltY: 0, stagger: 0 },
+  { id: 'letter-ballet', name: 'Letter ballet', category: 'graphic', renderer: 'kinetic', caption: 'Курсив · вихрь · смена масштаба', source: 'По приложенному видео', color: '#f8c700', bg: '#f8c700', duration: 12, depth: 120, spread: 100, tiltX: 0, tiltY: 0, stagger: 0 },
+  { id: 'pattern-roll', name: 'Pattern roll', category: 'graphic', renderer: 'kinetic', caption: 'Повтор · вращение · оптический ритм', source: 'По приложенному видео', color: '#ece8df', bg: '#141416', duration: 9, depth: 100, spread: 100, tiltX: 0, tiltY: 0, stagger: 0 },
+  { id: 'helix', name: 'Ribbon helix', category: 'type', renderer: 'webgl', caption: 'Спираль · встречное вращение', source: 'Авторская вариация', color: '#d0f97b', bg: '#24252b', duration: 10, depth: 150, spread: 100, tiltX: -12, tiltY: -20, stagger: 0 },
+  { id: 'type-cloth', name: 'Type textile', category: 'type', renderer: 'webgl', caption: 'Ткань · волны · печатный паттерн', source: 'Авторская вариация', color: '#c6adf2', bg: '#e4dfd9', duration: 10, depth: 150, spread: 100, tiltX: 10, tiltY: -15, stagger: 0 },
   { id: 'cascade', name: 'Объёмный каскад', category: 'cards', caption: 'Слои · глубина · мягкий свет', color: '#c4b1ea', bg: '#bdb2d3', duration: 7, depth: 140, spread: 75, tiltX: 10, tiltY: -16, stagger: .16 },
   { id: 'orbit', name: 'Орбита', category: 'cards', caption: 'Дуга · параллакс · поворот', color: '#c2dbb3', bg: '#bbc8b5', duration: 8, depth: 220, spread: 90, tiltX: 5, tiltY: -8, stagger: .12 },
   { id: 'editorial', name: 'Editorial flow', category: 'cards', caption: 'Встречный вылет · ритм', color: '#ebc0ac', bg: '#d6b8a5', duration: 7, depth: 90, spread: 85, tiltX: 3, tiltY: -12, stagger: .2 },
@@ -10,14 +17,31 @@ export const PRESETS = [
   { id: 'ribbon', name: 'Волна', category: 'cards', caption: 'Пластика · свет · движение', color: '#d1b9d7', bg: '#c8b2c8', duration: 8, depth: 160, spread: 78, tiltX: 5, tiltY: -10, stagger: .12 },
   { id: 'gallery', name: 'Галерея', category: 'mockups', caption: 'Сетка · пролёт камеры', color: '#dfd2b7', bg: '#cec2ad', duration: 8, depth: 110, spread: 82, tiltX: 12, tiltY: -18, stagger: .1 },
 ];
-export const presetById = id => PRESETS.find(p => p.id === id) || PRESETS[0];
+export const presetById = id => PRESETS.find(p => p.id === id) || PRESETS.find(p => p.id === 'cascade');
 export function newLayer(index = 0) {
   const titles = ['Make\nit move.', 'Less,\nbut better.', 'A new\nperspective.', 'Stay\ncurious.', 'Beyond\nthe ordinary.', 'Find\nyour rhythm.', 'Create\nsomething.', 'Keep\nexploring.'];
   return { id: uid(), name: `Кадр ${index + 1}`, kind: 'design', mediaId: null, title: titles[index % 8], subtitle: 'FORM / MOTION STUDIES', color: PALETTE[index % 8], fit: 'cover', fontSize: 100, x: 0, y: 0, z: 0, rotation: 0, scale: 100, opacity: 100, delay: 0 };
 }
+export function presetLayers(id) {
+  const titles = {
+    'type-rings': ['Queens / The Bronx', 'NEW YORK * NEW YORK', 'Brooklyn / Staten Island', 'BROOKLYN * BROOKLYN', '02•12•20', 'MANHATTAN * MANHATTAN'],
+    'liquid-sphere': ['The Photo\nPop Up\nCulture Series', 'presents', 'NEW WAYS\nTO SEE', 'Move your\nperspective'],
+    'type-tunnel': ['ALTERNATIVE PLANET FM', 'W/ TASH LC, ANZ & SPECIAL REQUEST', 'ECHOBOX PRESENTS W/ APRIL22.', 'ART OF DJING LIVE: FREDDY K'],
+    'letter-ballet': ['Let', 'my', 'ideas', 'run', 'wild'],
+    'pattern-roll': ['my', 'own', 'rhythm'],
+    'helix': ['INFINITE MOTION', 'FIND YOUR FLOW', 'CREATE SOMETHING', 'MOVE BEYOND', 'INFINITE MOTION'],
+    'type-cloth': ['FEEL THE FLOW', 'MOVE WITH IT', 'FEEL THE FLOW', 'MOVE WITH IT'],
+  }[id];
+  if (!titles) return [0, 1, 2].map(newLayer);
+  return titles.map((title, i) => {
+    const l = newLayer(i); l.title = title; l.kind = 'text'; l.subtitle = ''; l.color = presetById(id).color;
+    if (id === 'letter-ballet') l.color = ['#faf8f2', '#111113', '#ed5100', '#f5c500', '#4c00cb'][i];
+    return l;
+  });
+}
 export function newClip(presetId = 'cascade') {
   const p = presetById(presetId);
-  return { id: uid(), presetId: p.id, name: p.name, duration: p.duration, speed: 1, easing: 'smooth', background: p.bg, depth: p.depth, spread: p.spread, tiltX: p.tiltX, tiltY: p.tiltY, stagger: p.stagger, motion: 100, zoom: 100, light: 75, lightAngle: -35, shadow: 55, softness: 65, layers: [0, 1, 2].map(newLayer) };
+  return { id: uid(), presetId: p.id, name: p.name, duration: p.duration, speed: 1, easing: p.renderer ? 'linear' : 'smooth', background: p.bg, depth: p.depth, spread: p.spread, tiltX: p.tiltX, tiltY: p.tiltY, stagger: p.stagger, motion: 100, zoom: 100, light: 75, lightAngle: -35, shadow: 55, softness: 65, curvature: p.id === 'liquid-sphere' ? 80 : 65, turns: 100, repeat: p.id === 'type-tunnel' ? 2 : 3, gloss: p.id === 'liquid-sphere' ? 85 : 30, frameColors: p.id === 'letter-ballet', autoInk: p.id === 'letter-ballet', ink: ['type-tunnel', 'pattern-roll'].includes(p.id) ? '#f5f2ec' : '#101013', typeface: ['letter-ballet', 'pattern-roll'].includes(p.id) ? 'serif' : 'condensed', layers: presetLayers(p.id) };
 }
 export const effectiveDuration = clip => clip.duration / clip.speed;
 export function schedule(clips) {
@@ -133,10 +157,11 @@ export function parseProject(input) {
     media[id] = { id, kind: m.kind, name: str(m.name, 'Медиа'), src: m.src };
   }
   const clips = input.clips.map(raw => {
-    if (!raw || !PRESETS.some(p => p.id === raw.presetId) || !Array.isArray(raw.layers) || !raw.layers.length || raw.layers.length > 8) throw new Error('Некорректный пресет или количество кадров.');
+    if (!raw || !PRESETS.some(p => p.id === raw.presetId) || !Array.isArray(raw.layers) || raw.layers.length > 8) throw new Error('Некорректный пресет или количество кадров.');
     const c = newClip(raw.presetId);
-    c.name = str(raw.name, c.name, 60); c.background = color(raw.background, c.background);
-    for (const [key, min, max] of [['duration', 2, 30], ['speed', .25, 3], ['depth', 0, 400], ['spread', 20, 150], ['tiltX', -45, 45], ['tiltY', -55, 55], ['stagger', 0, .6], ['motion', 0, 200], ['zoom', 30, 160], ['light', 0, 100], ['lightAngle', -180, 180], ['shadow', 0, 100], ['softness', 0, 100]]) c[key] = numeric(raw[key], c[key], min, max);
+    c.frameColors = typeof raw.frameColors === 'boolean' ? raw.frameColors : c.frameColors; c.autoInk = typeof raw.autoInk === 'boolean' ? raw.autoInk : c.autoInk;
+    c.name = str(raw.name, c.name, 60); c.background = color(raw.background, c.background); c.ink = color(raw.ink, c.ink); c.typeface = ['condensed', 'sans', 'serif', 'mono'].includes(raw.typeface) ? raw.typeface : c.typeface;
+    for (const [key, min, max] of [['duration', 2, 30], ['speed', .25, 3], ['depth', 0, 400], ['spread', 20, 150], ['tiltX', -45, 45], ['tiltY', -55, 55], ['stagger', 0, .6], ['motion', 0, 200], ['zoom', 30, 160], ['light', 0, 100], ['lightAngle', -180, 180], ['shadow', 0, 100], ['softness', 0, 100], ['curvature', 0, 150], ['turns', 0, 200], ['repeat', 1, 8], ['gloss', 0, 100]]) c[key] = numeric(raw[key], c[key], min, max);
     c.easing = ['smooth', 'in', 'out', 'linear', 'spring', 'cinematic'].includes(raw.easing) ? raw.easing : 'smooth';
     c.layers = raw.layers.map((r, i) => {
       if (!r || !['design', 'image', 'video', 'text'].includes(r.kind)) throw new Error('Некорректный кадр.');

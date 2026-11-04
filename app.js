@@ -1,15 +1,23 @@
-import { icon } from './icons.js?v=2.0.1';
-import { PRESETS, clamp, uid, newClip, newLayer, presetById, schedule, totalDuration, activeScenes, sceneGeometry, layerPose, cameraPose, parseProject } from './engine.js?v=2.0.1';
+import { SpatialRenderer } from './spatial-renderer.js?v=3.0.0';
+import { KineticRenderer } from './kinetic-renderer.js?v=3.0.0';
+import { icon } from './icons.js?v=3.0.0';
+import { PRESETS, clamp, uid, newClip, newLayer, presetById, schedule, totalDuration, activeScenes, sceneGeometry, layerPose, cameraPose, parseProject } from './engine.js?v=3.0.0';
 
 const $ = id => document.getElementById(id);
-const firstClip = newClip();
-let project = { version: 2, name: 'Мой motion-проект', width: 1920, height: 1080, clips: [firstClip], media: {} };
+const firstClip = newClip('type-rings');
+let project = { version: 2, name: 'Мой motion-проект', width: 1080, height: 1080, clips: [firstClip], media: {} };
 let selectedClipId = firstClip.id, selectedLayerId = firstClip.layers[0].id;
 let currentTime = 1.6, playing = !matchMedia('(prefers-reduced-motion: reduce)').matches, looping = true;
 let lastTick = null, timelineZoom = 1, filter = 'all', dirty = false, toastTimer;
 let scenes = new Map();
+let selectionScope = 'layer';
+const cardUndo = [];
+function setScope(scope) { selectionScope = scope; $('selection-hint').textContent = scope === 'layer' ? 'Кадр · Delete — удалить · тяните мышью' : 'Клип · Delete — удалить'; }
+function rememberCardAction() { cardUndo.push({ layers: structuredClone(selectedClip().layers), clipId: selectedClipId, layerId: selectedLayerId, time: currentTime }); if (cardUndo.length > 40) cardUndo.shift(); $('undo-card').disabled = false; }
+function undoCardAction() { const last = cardUndo.pop(); if (!last) return; setPlaying(false); clearScenes(); const index = project.clips.findIndex(c => c.id === last.clipId); if (index < 0) { $('undo-card').disabled = !cardUndo.length; toast('Клип этого действия уже удалён.'); return; } project.clips[index].layers = last.layers; selectedClipId = last.clipId; selectedLayerId = last.layerId; currentTime = Math.min(last.time, totalDuration(project.clips)); setScope('layer'); renderInspector(); renderTimeline(); renderAt(); markChanged(); $('undo-card').disabled = !cardUndo.length; toast('Действие с кадрами отменено.'); }
+
 const selectedClip = () => project.clips.find(c => c.id === selectedClipId) || project.clips[0];
-const selectedLayer = () => selectedClip().layers.find(l => l.id === selectedLayerId) || selectedClip().layers[0];
+const selectedLayer = () => selectedClip().layers.find(l => l.id === selectedLayerId) || selectedClip().layers[0] || null;
 const pxPerSecond = () => 62 * timelineZoom;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = n => String(n).padStart(2, '0');
@@ -17,7 +25,7 @@ const timeLabel = t => `${pad(Math.floor(t / 60))}:${pad(Math.floor(t % 60))}.${
 const number = (value, fallback, min, max) => Number.isFinite(Number(value)) ? clamp(Number(value), min, max) : fallback;
 function toast(message) { clearTimeout(toastTimer); $('toast').textContent = message; $('toast').classList.add('show'); toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3800); }
 function markChanged() { dirty = true; }
-function clearScenes() { for (const scene of scenes.values()) scene.root.querySelectorAll('video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); }); scenes.clear(); $('stage-scenes').replaceChildren(); }
+function clearScenes() { for (const scene of scenes.values()) { scene.renderer?.dispose(); scene.root.querySelectorAll('video').forEach(v => { v.pause(); v.removeAttribute('src'); v.load(); }); } scenes.clear(); $('stage-scenes').replaceChildren(); }
 function updateRange(input) { const value = (Number(input.value) - Number(input.min)) / (Number(input.max) - Number(input.min)) * 100; input.style.setProperty('--fill', `${value}%`); }
 function setPlaying(value) {
   playing = value; lastTick = null;
@@ -26,9 +34,9 @@ function setPlaying(value) {
   renderAt();
 }
 function seek(time, pause = false) { currentTime = clamp(time, 0, totalDuration(project.clips)); if (pause) setPlaying(false); lastTick = null; renderAt(); }
-function refreshScenes() { clearScenes(); renderAt(); }
+function refreshScenes() { if (![...scenes.values()].every(scene => scene.renderer && project.clips.find(c => c.id === scene.root.dataset.scene)?.layers.length)) clearScenes(); renderAt(); }
 function selectClip(id, moveHead = true) {
-  selectedClipId = id; selectedLayerId = selectedClip().layers[0].id;
+  selectedClipId = id; selectedLayerId = selectedClip().layers[0]?.id || null; setScope('clip');
   if (moveHead) { const item = schedule(project.clips).find(s => s.clip.id === id); currentTime = item.start + Math.min(1.7 / item.clip.speed, item.duration * .5); setPlaying(false); }
   renderInspector(); renderTimeline(); renderAt();
   $('clip-track').querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -38,7 +46,8 @@ function addClip(id, atIndex = project.clips.length) {
   const clip = newClip(id); project.clips.splice(atIndex, 0, clip); markChanged(); selectClip(clip.id); toast(`${clip.name} — добавлен на таймлайн`);
 }
 function renderPresets() {
-  $('presets').innerHTML = PRESETS.filter(p => filter === 'all' || p.category === filter).map(p => `<button class="preset" draggable="true" data-preset="${p.id}" title="Добавить «${p.name}» на таймлайн" aria-label="Добавить пресет ${p.name}"><div class="preset-thumb ${p.id}" style="--tile:${p.bg}"><div class="mini-group"><span class="mini-card" style="--i:-1">a</span><span class="mini-card" style="--i:0">f.</span><span class="mini-card" style="--i:1">${icon('arrow')}</span></div><span class="preset-plus">＋</span></div><strong>${p.name}</strong><small>${p.caption}</small></button>`).join('');
+  $('preset-count').textContent = PRESETS.length;
+  $('presets').innerHTML = PRESETS.filter(p => filter === 'all' || p.category === filter).map(p => `<button class="preset" draggable="true" data-preset="${p.id}" title="Добавить «${p.name}» на таймлайн" aria-label="Добавить пресет ${p.name}"><div class="preset-thumb ${p.id}" style="--tile:${p.bg}">${p.renderer ? `<img class="preset-preview" src="assets/previews/${p.id}.png" alt="" draggable="false"><span class="new-badge">${p.source === 'Авторская вариация' ? 'LAB' : 'NEW'}</span>` : `<div class="mini-group"><span class="mini-card" style="--i:-1">a</span><span class="mini-card" style="--i:0">f.</span><span class="mini-card" style="--i:1">${icon('arrow')}</span></div>`}<span class="preset-plus">＋</span></div><strong>${p.name}</strong><small>${p.caption}</small></button>`).join('');
   $('presets').querySelectorAll('[data-preset]').forEach(button => {
     button.onclick = () => addClip(button.dataset.preset);
     button.ondragstart = event => { event.dataTransfer.setData('application/x-forma-preset', button.dataset.preset); event.dataTransfer.effectAllowed = 'copy'; };
@@ -76,7 +85,7 @@ function renderTimeline() {
 function startTrim(event) {
   event.preventDefault(); event.stopPropagation();
   const clip = project.clips.find(c => c.id === event.target.dataset.trim);
-  selectedClipId = clip.id; selectedLayerId = clip.layers[0].id; setPlaying(false);
+  selectedClipId = clip.id; selectedLayerId = clip.layers[0]?.id || null; setScope('clip'); setPlaying(false);
   const initialX = event.clientX, duration = clip.duration;
   function move(e) {
     clip.duration = Math.round(clamp(duration + (e.clientX - initialX) / pxPerSecond() * clip.speed, 2, 30) * 10) / 10;
@@ -92,19 +101,60 @@ function updatePlayhead() {
   $('time-readout').innerHTML = `${timeLabel(currentTime)} <span>/ ${timeLabel(total)}</span>`;
   $('scrubber').value = currentTime; updateRange($('scrubber'));
 }
+function focusLayer(id) {
+  selectedLayerId = id; setScope('layer');
+  if (!activeScenes(project.clips, currentTime).some(s => s.clip.id === selectedClipId)) { const item = schedule(project.clips).find(s => s.clip.id === selectedClipId); currentTime = item.start + Math.min(1.7 / item.clip.speed, item.duration * .5); }
+  setPlaying(false); renderLayerList(); renderLayerEditor(); renderAt();
+}
+function removeLayer(id = selectedLayerId) {
+  const clip = selectedClip(), index = clip.layers.findIndex(l => l.id === id); if (index < 0) return;
+  setPlaying(false); rememberCardAction(); clip.layers.splice(index, 1); selectedLayerId = clip.layers[Math.min(index, clip.layers.length - 1)]?.id || null; setScope('layer');
+  markChanged(); refreshScenes(); renderInspector(); renderTimeline(); toast('Кадр удалён · Ctrl/Cmd + Z — вернуть');
+}
+function reorderLayer(id, to) {
+  const layers = selectedClip().layers, from = layers.findIndex(l => l.id === id); if (from < 0) return;
+  if (from < to) to--; if (from === to) return;
+  rememberCardAction(); const [layer] = layers.splice(from, 1); layers.splice(to, 0, layer); selectedLayerId = id; setScope('layer'); setPlaying(false); markChanged(); refreshScenes(); renderInspector();
+}
 function renderLayerList() {
-  const clip = selectedClip();
-  $('layer-count').textContent = `${clip.layers.length} / 8`;
+  const clip = selectedClip(); $('layer-count').textContent = `${clip.layers.length} / 8`;
   $('layer-list').innerHTML = clip.layers.map((layer, index) => {
     const media = project.media[layer.mediaId];
     const thumb = layer.kind === 'image' && media ? `<img class="layer-item-thumb" alt="" src="${esc(media.src)}">` : `<span class="layer-item-thumb" style="--layer-color:${layer.color}">${layer.kind === 'video' ? '▶' : esc(layer.title.slice(0, 1))}</span>`;
-    return `<button class="layer-item${selectedLayerId === layer.id ? ' active' : ''}" data-layer="${layer.id}" aria-pressed="${selectedLayerId === layer.id}">${thumb}<span class="layer-item-copy"><strong>${esc(layer.name)}</strong><small>${{ design: 'Дизайн-карточка', text: 'Текст', image: 'Изображение', video: 'Видео · без звука' }[layer.kind]}</small></span><span class="layer-item-index">${pad(index + 1)}</span></button>`;
+    return `<div class="layer-row" draggable="true" data-layer-row="${layer.id}"><span class="layer-grip" aria-hidden="true"></span><button class="layer-item${selectedLayerId === layer.id ? ' active' : ''}" data-layer="${layer.id}" aria-pressed="${selectedLayerId === layer.id}">${thumb}<span class="layer-item-copy"><strong>${esc(layer.name)}</strong><small>${{ design: 'Дизайн-карточка', text: 'Текст', image: 'Изображение', video: 'Видео · без звука' }[layer.kind]}</small></span><span class="layer-item-index">${pad(index + 1)}</span></button><button class="quick-remove-layer" data-remove-layer="${layer.id}" aria-label="Удалить ${esc(layer.name)}" title="Удалить кадр">×</button></div>`;
   }).join('');
-  $('layer-list').querySelectorAll('[data-layer]').forEach(button => button.onclick = () => { selectedLayerId = button.dataset.layer; if (!activeScenes(project.clips, currentTime).some(s => s.clip.id === selectedClipId)) { const item = schedule(project.clips).find(s => s.clip.id === selectedClipId); currentTime = item.start + Math.min(1.7 / item.clip.speed, item.duration * .5); } setPlaying(false); renderLayerList(); renderLayerEditor(); renderAt(); });
+  $('layer-list').querySelectorAll('[data-layer]').forEach(button => button.onclick = () => focusLayer(button.dataset.layer));
+  $('layer-list').querySelectorAll('[data-remove-layer]').forEach(button => button.onclick = () => removeLayer(button.dataset.removeLayer));
+  $('layer-list').querySelectorAll('[data-layer-row]').forEach(row => {
+    row.ondragstart = event => { event.dataTransfer.setData('application/x-forma-layer',JSON.stringify({ clipId: clip.id, layerId: row.dataset.layerRow })); event.dataTransfer.effectAllowed = 'move'; row.classList.add('dragging-row'); };
+    row.ondragend = () => row.classList.remove('dragging-row');
+    row.ondragover = event => { if (event.dataTransfer.types.includes('application/x-forma-layer')) { event.preventDefault(); row.classList.add('drop-layer'); } };
+    row.ondragleave = () => row.classList.remove('drop-layer');
+    row.ondrop = event => {
+      event.preventDefault(); event.stopPropagation(); row.classList.remove('drop-layer');
+      try { const data = JSON.parse(event.dataTransfer.getData('application/x-forma-layer')); if (data.clipId !== clip.id) return; let index = clip.layers.findIndex(l => l.id === row.dataset.layerRow); if (event.clientY > row.getBoundingClientRect().top + row.clientHeight / 2) index++; reorderLayer(data.layerId,index); } catch { /* Ignore foreign drag payloads. */ }
+    };
+  });
   $('add-layer').disabled = clip.layers.length >= 8;
+}
+function startLayerDrag(event, clip, layer, renderer = null) {
+  if (event.button !== 0) return; event.preventDefault(); event.stopPropagation();
+  selectedClipId = clip.id; selectedLayerId = layer.id; setScope('layer'); setPlaying(false); renderInspector(); renderTimeline();
+  const target = event.currentTarget, x = event.clientX, y = event.clientY, initialX = layer.x, initialY = layer.y;
+  let moved = false; target.focus({ preventScroll: true }); target.setPointerCapture?.(event.pointerId); target.classList.add('dragging-layer');
+  const move = e => {
+    if (!moved && Math.hypot(e.clientX-x,e.clientY-y) < 3) return;
+    if (!moved) { rememberCardAction(); moved = true; }
+    const delta = renderer ? renderer.dragDelta(e.clientX-x,e.clientY-y) : [(e.clientX-x)*1200/$('stage').clientWidth,(e.clientY-y)*1200/$('stage').clientWidth];
+    layer.x = Math.round(clamp(initialX+delta[0],-600,600)); layer.y = Math.round(clamp(initialY+delta[1],-600,600));
+    $('layer-x').value = layer.x; $('layer-y').value = layer.y; markChanged(); renderAt();
+  };
+  const stop = () => { target.removeEventListener('pointermove',move); target.removeEventListener('pointerup',stop); target.removeEventListener('pointercancel',stop); target.classList.remove('dragging-layer'); if (target.hasPointerCapture?.(event.pointerId)) target.releasePointerCapture(event.pointerId); };
+  target.addEventListener('pointermove',move); target.addEventListener('pointerup',stop,{once:true}); target.addEventListener('pointercancel',stop,{once:true});
 }
 function renderLayerEditor() {
   const layer = selectedLayer(), clip = selectedClip();
+  $('layer-editor').hidden = !layer; if (!layer) return;
   $('selected-layer-label').textContent = layer.name;
   $('layer-kind').value = layer.kind; $('layer-name').value = layer.name;
   $('layer-title').value = layer.title; $('layer-subtitle').value = layer.subtitle;
@@ -116,12 +166,15 @@ function renderLayerEditor() {
   }
   const index = clip.layers.indexOf(layer);
   $('layer-up').disabled = index === 0; $('layer-down').disabled = index === clip.layers.length - 1;
-  $('remove-layer').disabled = clip.layers.length === 1; $('duplicate-layer').disabled = clip.layers.length >= 8;
+  $('remove-layer').disabled = false; $('duplicate-layer').disabled = clip.layers.length >= 8;
 }
-const clipSliders = { speed: ['speed', '×'], depth: ['depth', ''], spread: ['spread', '%'], tiltX: ['tiltX', '°'], tiltY: ['tiltY', '°'], 'zoom-clip': ['zoom', '%'], motion: ['motion', '%'], stagger: ['stagger', ' с'], light: ['light', '%'], lightAngle: ['lightAngle', '°'], shadow: ['shadow', '%'], softness: ['softness', '%'] };
+const clipSliders = { speed: ['speed', '×'], depth: ['depth', ''], spread: ['spread', '%'], tiltX: ['tiltX', '°'], tiltY: ['tiltY', '°'], 'zoom-clip': ['zoom', '%'], motion: ['motion', '%'], stagger: ['stagger', ' с'], light: ['light', '%'], lightAngle: ['lightAngle', '°'], shadow: ['shadow', '%'], softness: ['softness', '%'], curvature: ['curvature', '%'], turns: ['turns', '%'], repeat: ['repeat', '×'], gloss: ['gloss', '%'] };
 function renderInspector() {
   const clip = selectedClip();
   $('clip-name').value = clip.name; $('duration').value = clip.duration; $('easing').value = clip.easing;
+  $('ballet-colors').hidden = clip.presetId !== 'letter-ballet'; $('frame-colors').checked = clip.frameColors; $('auto-ink').checked = clip.autoInk; $('ink').disabled = clip.presetId === 'letter-ballet' && clip.autoInk;
+  const kinetic = presetById(clip.presetId).renderer === 'kinetic'; $('light').closest('section').hidden = kinetic; for (const id of ['depth','stagger']) $(id).closest('label').hidden = kinetic; $('layer-color').closest('label').hidden = clip.presetId === 'pattern-roll';
+  $('surface-controls').hidden = !presetById(clip.presetId).renderer; $('gloss').closest('label').hidden = presetById(clip.presetId).renderer === 'kinetic'; $('preset-source').textContent = presetById(clip.presetId).source || 'Карточная 3D-сцена'; $('ink').value = clip.ink; $('typeface').value = clip.typeface;
   $('background').value = clip.background; $('background-value').textContent = clip.background;
   for (const [id, [key, unit]] of Object.entries(clipSliders)) {
     $(id).value = clip[key]; $(`${id}-value`).textContent = `${clip[key]}${unit}`; updateRange($(id));
@@ -132,6 +185,18 @@ function makeScene(clip) {
   const geometry = sceneGeometry(project.width, project.height, clip.presetId);
   const root = document.createElement('div'); root.className = 'scene'; root.dataset.scene = clip.id;
   root.style.setProperty('--scene-bg', clip.background);
+  if (!clip.layers.length) {
+    root.classList.add('empty-scene'); root.innerHTML = '<div><span>＋</span><h3>Чистый лист</h3><p>Добавьте кадр или перетащите сюда медиа.</p><button class="primary">Добавить кадр</button></div>';
+    root.querySelector('button').onclick = () => { selectedClipId = clip.id; addLayer(); }; $('stage-scenes').append(root); return { root, empty: true, layers: [] };
+  }
+  if (presetById(clip.presetId).renderer) {
+    const canvas = document.createElement('canvas'); canvas.className = 'spatial-canvas'; canvas.tabIndex = 0; canvas.setAttribute('aria-label','3D-сцена: нажмите на поверхность и перетащите её'); root.append(canvas); $('stage-scenes').append(root);
+    let renderer;
+    try { renderer = presetById(clip.presetId).renderer === 'webgl' ? new SpatialRenderer(canvas,toast) : new KineticRenderer(canvas,toast); }
+    catch (error) { root.innerHTML = `<div class="renderer-error">${esc(error.message)}</div>`; return { root, empty: true, layers: [] }; }
+    canvas.onpointerdown = event => { const rect = canvas.getBoundingClientRect(); const index = renderer.pick(event.clientX-rect.left,event.clientY-rect.top); if (index >= 0 && clip.layers[index]) startLayerDrag(event,clip,clip.layers[index],renderer); };
+    return { root, renderer, layers: renderer.layers };
+  }
   const wash = document.createElement('div'); wash.className = 'lightwash'; root.append(wash);
   const space = document.createElement('div'); space.className = 'scene-space'; space.style.width = `${geometry.width}px`; space.style.height = `${geometry.height}px`; root.append(space);
   const camera = document.createElement('div'); camera.className = 'camera'; space.append(camera);
@@ -160,7 +225,7 @@ function makeScene(clip) {
       face.innerHTML = `<div class="design-face${layer.kind === 'text' ? ' text-only' : ''}" style="color:${textColor}"><div class="design-top">${esc(layer.subtitle)}<span>${icon('arrow')}</span></div><div class="design-orb"></div><div class="design-title">${esc(layer.title)}</div><div class="design-footer"><div>A little motion.<br>A different perspective.<div class="design-index">STUDY ${pad(index + 1)} / FORMA</div></div><b>✳</b></div></div>`;
     }
     if (clip.presetId === 'device') { const notch = document.createElement('div'); notch.className = 'device-notch'; node.append(notch); }
-    node.onclick = () => { if (selectedClipId !== clip.id) selectedClipId = clip.id; selectedLayerId = layer.id; setPlaying(false); renderInspector(); renderTimeline(); renderAt(); };
+    node.tabIndex = 0; node.setAttribute('aria-label',`Переместить ${layer.name}`); node.onpointerdown = event => startLayerDrag(event,clip,layer);
     camera.append(node);
     return { layerId: layer.id, node, face, gloss, shadow, video };
   });
@@ -174,13 +239,18 @@ function readableColor(color) {
 function renderAt() {
   const active = activeScenes(project.clips, currentTime);
   const activeIds = new Set(active.map(s => s.clip.id));
-  for (const [id, scene] of scenes) if (!activeIds.has(id)) { scene.layers.forEach(l => l.video?.pause()); scene.root.remove(); scenes.delete(id); }
+  for (const [id, scene] of scenes) if (!activeIds.has(id)) { scene.layers.forEach(l => l.video?.pause()); scene.renderer?.dispose(); scene.root.remove(); scenes.delete(id); }
   active.forEach((item, activeIndex) => {
     const { clip, local, alpha } = item;
-    let scene = scenes.get(clip.id); if (!scene) { scene = makeScene(clip); scenes.set(clip.id, scene); }
+    let scene = scenes.get(clip.id);
+    const topology = clip.layers.map(l => l.id).join('|');
+    if (scene && ((!scene.renderer && scene.topology !== topology) || (scene.renderer && !clip.layers.length))) { scene.renderer?.dispose(); scene.layers.forEach(l => l.video?.pause()); scene.root.remove(); scenes.delete(clip.id); scene = null; }
+    if (!scene) { scene = makeScene(clip); scene.topology = topology; scenes.set(clip.id, scene); }
     scene.root.style.zIndex = String(item.index);
     scene.root.style.opacity = active.length > 1 && activeIndex === 0 ? '1' : String(alpha);
     scene.root.style.setProperty('--scene-bg', clip.background);
+    if (scene.empty) return;
+    if (scene.renderer) { scene.renderer.draw(clip,local,{ width:$('stage').clientWidth,height:$('stage').clientHeight,media:project.media,playing,selectedLayerId:selectedClipId===clip.id?selectedLayerId:null,syncVideo }); scene.layers = scene.renderer.layers; return; }
     const lightX = 50 + Math.sin(clip.lightAngle * Math.PI / 180) * 45;
     scene.wash.style.setProperty('--light-x', `${lightX}%`); scene.wash.style.opacity = String(clip.light / 100);
     scene.space.style.transform = `scale(${$('stage').clientWidth / scene.geometry.width})`;
@@ -244,12 +314,12 @@ function tick(timestamp) {
 }
 function addLayer(layer = newLayer(selectedClip().layers.length)) {
   const clip = selectedClip(); if (clip.layers.length >= 8) return toast('До 8 кадров в одном пресете. Добавьте ещё один клип.');
-  clip.layers.push(layer); selectedLayerId = layer.id; markChanged(); setPlaying(false); refreshScenes(); renderInspector(); renderTimeline();
+  rememberCardAction(); clip.layers.push(layer); selectedLayerId = layer.id; setScope('layer'); markChanged(); setPlaying(false); refreshScenes(); renderInspector(); renderTimeline();
 }
 function moveLayer(direction) {
   const layers = selectedClip().layers, index = layers.findIndex(l => l.id === selectedLayerId), target = index + direction;
   if (target < 0 || target >= layers.length) return;
-  [layers[index], layers[target]] = [layers[target], layers[index]]; markChanged(); refreshScenes(); renderInspector();
+  rememberCardAction(); [layers[index], layers[target]] = [layers[target], layers[index]]; markChanged(); refreshScenes(); renderInspector();
 }
 function moveClip(direction) {
   const index = project.clips.findIndex(c => c.id === selectedClipId), target = index + direction;
@@ -299,7 +369,7 @@ async function importMedia(files, replace = false) {
         if (layer) { layer.kind = asset.kind; layer.mediaId = asset.id; layer.name = asset.name; }
       } else if (clip && clip.layers.length < 8) {
         const layer = newLayer(clip.layers.length); layer.kind = asset.kind; layer.mediaId = asset.id; layer.name = asset.name; clip.layers.push(layer);
-        if (selectedClipId === clipId) selectedLayerId = layer.id;
+        if (selectedClipId === clipId) { selectedLayerId = layer.id; setScope('layer'); }
       }
       added++; markChanged();
     } catch (error) { toast(`${file.name}: ${error.message}`); }
@@ -322,7 +392,7 @@ async function openProject(file) {
   try {
     const next = parseProject(JSON.parse(await file.text()));
     if (dirty && !window.confirm('Открыть другой проект? Несохранённые изменения текущего проекта будут потеряны.')) return;
-    setPlaying(false); clearScenes(); project = next; currentTime = 0; selectedClipId = next.clips[0].id; selectedLayerId = next.clips[0].layers[0].id;
+    setPlaying(false); clearScenes(); project = next; currentTime = 0; selectedClipId = next.clips[0].id; selectedLayerId = next.clips[0].layers[0]?.id || null; cardUndo.length = 0; $('undo-card').disabled = true; setScope('layer');
     dirty = false; $('project-name').value = project.name; syncComposition(); renderInspector(); renderTimeline(); renderMedia(); fitStage(); toast('Проект открыт. Все настройки и медиа восстановлены.');
   } catch (error) { toast(error instanceof SyntaxError ? 'Не удалось прочитать JSON проекта.' : error.message); }
 }
@@ -394,10 +464,14 @@ function wireEvents() {
     if (key === 'speed') { if (currentTime >= item.start && currentTime < item.end) currentTime = item.start + (currentTime - item.start) * oldSpeed / clip.speed; currentTime = Math.min(currentTime, totalDuration(project.clips)); renderTimeline(); }
     renderAt();
   };
-  $('reset-motion').onclick = () => { const clip = selectedClip(), defaults = newClip(clip.presetId); for (const key of [...Object.values(clipSliders).map(v => v[0]), 'easing']) clip[key] = defaults[key]; currentTime = Math.min(currentTime, totalDuration(project.clips)); markChanged(); renderInspector(); renderTimeline(); renderAt(); toast('Движение сброшено. Кадры и их настройки сохранены.'); };
+  $('reset-motion').onclick = () => { const clip = selectedClip(), defaults = newClip(clip.presetId); for (const key of [...Object.values(clipSliders).map(v => v[0]), 'easing', 'typeface', 'ink', 'autoInk', 'frameColors']) clip[key] = defaults[key]; currentTime = Math.min(currentTime, totalDuration(project.clips)); markChanged(); renderInspector(); renderTimeline(); renderAt(); toast('Движение сброшено. Кадры и их настройки сохранены.'); };
   $('add-layer').onclick = () => addLayer();
   $('duplicate-layer').onclick = () => { const layer = structuredClone(selectedLayer()); layer.id = uid(); layer.name = `${layer.name} — копия`.slice(0, 60); addLayer(layer); };
-  $('remove-layer').onclick = () => { const clip = selectedClip(); if (clip.layers.length <= 1) return; const index = clip.layers.findIndex(l => l.id === selectedLayerId); clip.layers.splice(index, 1); selectedLayerId = clip.layers[Math.min(index, clip.layers.length - 1)].id; markChanged(); refreshScenes(); renderInspector(); renderTimeline(); };
+  $('remove-layer').onclick = () => removeLayer();
+  $('undo-card').onclick = undoCardAction;
+  for (const [id, key] of [['frame-colors','frameColors'], ['auto-ink','autoInk']]) $(id).onchange = () => { selectedClip()[key] = $(id).checked; $('ink').disabled = selectedClip().presetId === 'letter-ballet' && selectedClip().autoInk; markChanged(); renderAt(); };
+  $('ink').oninput = () => { selectedClip().ink = $('ink').value; markChanged(); renderAt(); };
+  $('typeface').onchange = () => { selectedClip().typeface = $('typeface').value; markChanged(); refreshScenes(); };
   $('layer-up').onclick = () => moveLayer(-1); $('layer-down').onclick = () => moveLayer(1);
   $('layer-kind').onchange = () => { const kind = $('layer-kind').value; if (!['design', 'text'].includes(kind)) return; selectedLayer().kind = kind; markChanged(); refreshScenes(); renderLayerList(); renderLayerEditor(); };
   for (const key of ['name', 'title', 'subtitle', 'color']) $(`layer-${key}`).oninput = () => {
@@ -433,7 +507,8 @@ function wireEvents() {
     const target = event.target;
     if (target instanceof Element && (target.isContentEditable || target.closest('input,textarea,select,[role="textbox"]'))) return;
     if (event.code === 'Space') { event.preventDefault(); if (!event.repeat) $('play').click(); }
-    if ((event.key === 'Delete' || event.key === 'Backspace') && !event.metaKey && !event.ctrlKey) { event.preventDefault(); $('remove-clip').click(); }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); undoCardAction(); }
+    if ((event.key === 'Delete' || event.key === 'Backspace') && !event.metaKey && !event.ctrlKey) { event.preventDefault(); if (selectionScope === 'layer') removeLayer(); else $('remove-clip').click(); }
     if (event.key === 'ArrowRight') { event.preventDefault(); seek(currentTime + (event.shiftKey ? 1 : 1 / 30), true); }
     if (event.key === 'ArrowLeft') { event.preventDefault(); seek(currentTime - (event.shiftKey ? 1 : 1 / 30), true); }
   });
@@ -447,4 +522,5 @@ $('open-project').innerHTML = icon('upload') + '<span>Открыть</span>';
 $('save-project').innerHTML = icon('download') + '<span>Сохранить проект</span>';
 $('fit-stage').innerHTML = icon('fit') + '<span id="fit-value">Вписать</span>';
 for (const label of document.querySelectorAll('label[for="media-file"].button, .replace-button')) label.innerHTML = icon('upload') + (label.classList.contains('replace-button') ? 'Заменить файл' : 'Загрузить');
-wireEvents(); renderPresets(); renderInspector(); renderTimeline(); renderMedia(); syncComposition(); fitStage(); setPlaying(playing); requestAnimationFrame(tick);
+await Promise.all([document.fonts.load('20px "Forma Anton"'),document.fonts.load('italic 20px "Forma Serif"')]).catch(() => {});
+setScope('layer'); wireEvents(); renderPresets(); renderInspector(); renderTimeline(); renderMedia(); syncComposition(); fitStage(); setPlaying(playing); requestAnimationFrame(tick);
