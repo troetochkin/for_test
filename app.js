@@ -1,5 +1,5 @@
-import { icon } from './icons.js';
-import { PRESETS, clamp, uid, newClip, newLayer, presetById, schedule, totalDuration, activeScenes, sceneGeometry, layerPose, cameraPose, parseProject } from './engine.js';
+import { icon } from './icons.js?v=2.0.1';
+import { PRESETS, clamp, uid, newClip, newLayer, presetById, schedule, totalDuration, activeScenes, sceneGeometry, layerPose, cameraPose, parseProject } from './engine.js?v=2.0.1';
 
 const $ = id => document.getElementById(id);
 const firstClip = newClip();
